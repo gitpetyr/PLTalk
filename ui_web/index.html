@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>PLTalk</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ==================== L O G I N   V I E W ==================== -->
+  <div id="login-view" class="view active">
+    <div class="glass-card login-card">
+      <div class="login-header">
+        <div class="logo-icon">🔒</div>
+        <h2>PLTalk</h2>
+        <p class="subtitle">Nebula P2P Chat Protocol</p>
+      </div>
+      <form id="login-form">
+        <div class="input-group">
+          <label>显示名称 (Alias)</label>
+          <input type="text" id="cfg-alias" required placeholder="例如: Satoshi">
+        </div>
+        <div class="input-group">
+          <label>频道密码 (Network ID)</label>
+          <input type="password" id="cfg-netid" required placeholder="输入暗号过滤网络">
+        </div>
+        <div class="input-group-row">
+          <div class="input-group half">
+            <label>发现端口</label>
+            <input type="number" id="cfg-udp" value="9527" required>
+          </div>
+          <div class="input-group half">
+            <label>监听端口 (0为自动)</label>
+            <input type="number" id="cfg-tcp" value="0" required>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary" id="btn-login">进入网络</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ==================== M A I N   V I E W ==================== -->
+  <div id="main-view" class="view">
+    <div class="app-layout">
+      
+      <!-- S I D E B A R -->
+      <aside class="sidebar glass-panel">
+        <header class="sidebar-header drag-region">
+          <h3>PLTalk</h3>
+          <button id="btn-open-settings" class="icon-btn" title="设置">⚙️</button>
+        </header>
+
+        <div class="search-bar">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="search-input" placeholder="搜索联系人...">
+        </div>
+
+        <div class="contact-list-container">
+          <ul id="contact-list">
+            <!-- 联系人项模板 -->
+          </ul>
+        </div>
+
+        <footer class="sidebar-footer">
+          <span class="status-indicator">●</span>
+          <span class="status-text">网络已连接</span>
+        </footer>
+      </aside>
+
+      <!-- C H A T   A R E A -->
+      <main class="chat-area">
+        <header class="chat-header glass-panel drag-region">
+          <div class="peer-info">
+            <h2 id="current-peer-name">请选择联系人开始聊天</h2>
+            <span id="current-peer-status" class="peer-status hidden">🔒 端到端加密中</span>
+          </div>
+        </header>
+
+        <div id="chat-messages" class="chat-messages">
+          <div class="empty-state">
+            <div class="empty-icon">💬</div>
+            <p>选择一个联系人或等待发现新节点</p>
+          </div>
+          <!-- 消息气泡模板 -->
+        </div>
+
+        <footer class="chat-input-area glass-panel">
+          <div class="toolbar">
+            <button id="btn-emoji" class="icon-btn" title="表情">😊</button>
+            <button id="btn-file" class="icon-btn" title="发送文件">📎</button>
+            <div id="emoji-picker" class="glass-popup hidden"></div>
+          </div>
+          <textarea id="chat-input" placeholder="请先在左侧选择联系人"></textarea>
+          <div class="input-footer">
+            <button id="btn-send" class="btn btn-primary btn-sm">发送 (Enter)</button>
+          </div>
+        </footer>
+      </main>
+      
+    </div>
+  </div>
+
+  <!-- ==================== S E T T I N G S   M O D A L ==================== -->
+  <div id="settings-modal" class="modal-overlay hidden">
+    <div class="glass-card modal-content">
+      <header class="modal-header">
+        <h2>系统设置</h2>
+        <button id="btn-close-settings" class="icon-btn close-btn">✕</button>
+      </header>
+      
+      <div class="modal-body">
+        <section class="settings-section">
+          <h3>带外身份核验 (OOB)</h3>
+          <p class="help-text">向对方核对以下指纹串以确认通信安全。</p>
+          <div class="fingerprint-box">
+            <input type="text" id="fingerprint-out" readonly value="...">
+            <button id="btn-copy-fp" class="btn btn-sm">复制</button>
+          </div>
+        </section>
+
+        <section class="settings-section">
+          <h3>当前身份</h3>
+          <div class="input-group">
+            <label>显示名称</label>
+            <input type="text" id="set-alias">
+          </div>
+        </section>
+        
+        <section class="settings-section">
+          <h3>高级网络</h3>
+          <div class="input-group-row">
+            <div class="input-group">
+              <label>广播间隔 (秒)</label>
+              <input type="number" id="set-interval">
+            </div>
+            <label class="checkbox-label">
+              <input type="checkbox" id="set-sf"> 
+              启用离线消息代收 (S&F)
+            </label>
+          </div>
+        </section>
+      </div>
+
+      <footer class="modal-footer">
+        <button id="btn-save-settings" class="btn btn-primary">保存设置</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- 引入逻辑 -->
+  <script src="app.js"></script>
+</body>
+</html>
