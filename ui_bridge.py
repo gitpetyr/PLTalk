@@ -1,8 +1,10 @@
 import os
+import sys
 import json
 import logging
 import threading
 import time
+import subprocess
 import webview
 
 from npcp.api import API
@@ -63,6 +65,7 @@ class ApiBridge:
                 self._api.on("session_established", self._on_session_established)
                 self._api.on("message_received", self._on_message_received)
                 self._api.on("file_chunk_received", self._on_file_chunk)
+                self._api.on("sync_completed", self._on_sync_completed)
                 threading.Thread(target=self._api.start, daemon=True).start()
             
             return {
@@ -128,18 +131,33 @@ class ApiBridge:
         nodes = self._api.get_all_known_nodes()
         for node in nodes:
             try:
-                self._api.send_file(node["node_id"], path)
+                self._api.send_file(node["node_id"], path, is_broadcast=True)
             except Exception:
                 pass
 
     def open_file(self, path: str):
         if os.path.exists(path):
             if os.name == 'mac' or sys.platform == 'darwin':
-                os.system(f'open "{path}"')
+                subprocess.run(['open', path])
             elif os.name == 'nt':
-                os.system(f'start "" "{path}"')
+                os.startfile(path)
             elif os.name == 'posix':
-                os.system(f'xdg-open "{path}"')
+                subprocess.run(['xdg-open', path])
+
+    def get_chat_history(self, peer_id: str) -> dict:
+        if self._api:
+            try:
+                history = self._api.get_chat_history(peer_id, 200)
+                return {"status": "ok", "messages": history}
+            except Exception as e:
+                return {"status": "error", "error": str(e)}
+        return {"status": "error", "error": "API not initialized"}
+
+    def sync_history(self, peer_id: str) -> dict:
+        if self._api and peer_id != "#BROADCAST":
+            self._api.send_message(peer_id, "__SYNC_REQ__")
+            return {"status": "ok"}
+        return {"status": "error", "error": "Invalid peer or API not initialized"}
 
     # ── NPCP Event Handlers ──────────────────────────────────────────────────
 
@@ -148,6 +166,9 @@ class ApiBridge:
 
     def _on_session_established(self, peer_id: str, session_id: str):
         self._emit("session_established", {"peer_id": peer_id, "session_id": session_id})
+
+    def _on_sync_completed(self, peer_id: str):
+        self._emit("sync_completed", {"peer_id": peer_id})
 
     def _on_message_received(self, msg: dict):
         # We need to attach the sender's alias if available
@@ -199,10 +220,25 @@ class ApiBridge:
             with open(tmp_path, "wb") as f:
                 f.write(raw)
                 
+            is_broadcast = meta.get("is_broadcast", False)
+            if self._api:
+                self._api._node._ledger.save_message(
+                    msg_id=fid,
+                    sender_id=sender_id,
+                    target_id="#BROADCAST" if is_broadcast else self._api.node_id,
+                    content=f"已接收: {fname}",
+                    is_file=True,
+                    file_path=tmp_path,
+                    file_name=fname,
+                    is_broadcast=is_broadcast,
+                    timestamp=int(time.time()),
+                )
+
             self._emit("file_received", {
                 "sender_id": sender_id,
                 "file_path": tmp_path,
-                "file_name": fname
+                "file_name": fname,
+                "is_broadcast": is_broadcast
             })
 
     def shutdown(self):

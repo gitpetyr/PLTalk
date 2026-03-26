@@ -4,9 +4,8 @@ Append-only DAG ledger backed by SQLite.
 Stores:
   - nodes    : (node_id, public_key_hex, alias, x25519_ik_hex, x25519_spk_hex, first_seen)
   - trust_sigs: cross-signatures between nodes
-  - msg_hashes: hash-chain of messages (no plaintext/ciphertext)
-
-NO plaintext or ciphertext is ever written to this database.
+  - msg_hashes: hash-chain of messages
+  - messages : local history of chat messages (for UI and sync)
 """
 import sqlite3
 import time
@@ -47,6 +46,18 @@ class Ledger:
             session_id   TEXT NOT NULL,
             prev_hash    TEXT,
             content_hash TEXT NOT NULL,
+            timestamp    INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS messages (
+            msg_id       TEXT PRIMARY KEY,
+            sender_id    TEXT NOT NULL,
+            target_id    TEXT NOT NULL,
+            content      TEXT NOT NULL,
+            is_file      BOOLEAN NOT NULL,
+            file_path    TEXT,
+            file_name    TEXT,
+            is_broadcast BOOLEAN NOT NULL,
             timestamp    INTEGER NOT NULL
         );
         """)
@@ -132,6 +143,37 @@ class Ledger:
         """, (session_id,))
         row = cur.fetchone()
         return row["content_hash"] if row else "0" * 64
+
+    # ── Chat Messages ─────────────────────────────────────────────────────────
+
+    def save_message(self, msg_id: str, sender_id: str, target_id: str, content: str,
+                     is_file: bool, file_path: str, file_name: str, is_broadcast: bool,
+                     timestamp: int):
+        cur = self._conn.cursor()
+        cur.execute("""
+            INSERT OR IGNORE INTO messages
+            (msg_id, sender_id, target_id, content, is_file, file_path, file_name, is_broadcast, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (msg_id, sender_id, target_id, content, is_file, file_path, file_name, is_broadcast, timestamp))
+        self._conn.commit()
+
+    def get_chat_history(self, my_node_id: str, target_id: str, limit: int = 200) -> List[Dict]:
+        cur = self._conn.cursor()
+        if target_id == "#BROADCAST":
+            cur.execute("""
+                SELECT * FROM messages WHERE is_broadcast = 1
+                ORDER BY timestamp ASC LIMIT ?
+            """, (limit,))
+        else:
+            cur.execute("""
+                SELECT * FROM messages
+                WHERE is_broadcast = 0 AND (
+                    (sender_id = ? AND target_id = ?) OR
+                    (sender_id = ? AND target_id = ?)
+                )
+                ORDER BY timestamp ASC LIMIT ?
+            """, (my_node_id, target_id, target_id, my_node_id, limit))
+        return [dict(r) for r in cur.fetchall()]
 
     def close(self):
         self._conn.close()

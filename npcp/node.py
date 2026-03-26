@@ -267,8 +267,10 @@ class Node:
             signature   = "",
             extra       = {"hs_role": "responder"},
         )
-        peer_tcp = node_rec.get("tcp_port") or addr[1]
-        self._send_raw(addr[0], int(peer_tcp), resp_pkt)
+        
+        peer_address = self._peer_addr(pid)
+        if peer_address:
+            self._send_raw(peer_address[0], peer_address[1], resp_pkt)
         self._emit("session_established", pid, sid)
 
     def _handle_handshake_response(self, pkt: dict):
@@ -352,15 +354,64 @@ class Node:
         )
         self._session_mgr.update_hash_chain(sess, content_hash)
 
+        content_str = plaintext.decode("utf-8")
+        is_broadcast = content_str.startswith("BCAST:")
+
+        self._ledger.save_message(
+            msg_id=pkt["msg_id"],
+            sender_id=pid,
+            target_id="#BROADCAST" if is_broadcast else pkt["receiver_id"],
+            content=content_str,
+            is_file=False,
+            file_path="",
+            file_name="",
+            is_broadcast=is_broadcast,
+            timestamp=pkt["timestamp"],
+        )
+
+        # Handle Sync Request internally
+        if content_str == "__SYNC_REQ__":
+            self._handle_sync_req(pid)
+            return
+        elif content_str.startswith("__SYNC_REP__:"):
+            self._handle_sync_rep(pid, content_str[13:])
+            return
+
         self._emit("message_received", {
             "msg_id":    pkt["msg_id"],
             "sender_id": pid,
             "session_id": sid,
             "timestamp": pkt["timestamp"],
-            "content":   plaintext.decode("utf-8"),
+            "content":   content_str,
             "is_group":  pkt["type"] == MsgType.GROUP_MSG.value,
             "receiver_id": pkt["receiver_id"],
         })
+
+    def _handle_sync_req(self, peer_id: str):
+        # We received a sync request from peer_id. Send them our history with them and the broadcast history.
+        # This implementation simplifies by only syncing P2P messages with this peer to avoid massive blobs.
+        history = self._ledger.get_chat_history(self.node_id, peer_id, 200)
+        resp_data = json.dumps(history)
+        self.send_message(peer_id, f"__SYNC_REP__:{resp_data}")
+
+    def _handle_sync_rep(self, peer_id: str, payload: str):
+        try:
+            history = json.loads(payload)
+            for m in history:
+                self._ledger.save_message(
+                    msg_id=m["msg_id"],
+                    sender_id=m["sender_id"],
+                    target_id=m["target_id"],
+                    content=m["content"],
+                    is_file=m["is_file"],
+                    file_path=m["file_path"],
+                    file_name=m["file_name"],
+                    is_broadcast=m["is_broadcast"],
+                    timestamp=m["timestamp"]
+                )
+            self._emit("sync_completed", peer_id)
+        except Exception as e:
+            logger.warning("Failed to parse sync rep: %s", e)
 
     # ── File chunk handling ───────────────────────────────────────────────────
 
@@ -437,6 +488,19 @@ class Node:
                                       sess.session_id, prev_hash, content_hash)
         self._session_mgr.update_hash_chain(sess, content_hash)
 
+        is_broadcast = content.startswith("BCAST:")
+        self._ledger.save_message(
+            msg_id=msg_id,
+            sender_id=self.node_id,
+            target_id="#BROADCAST" if is_broadcast else peer_id,
+            content=content,
+            is_file=False,
+            file_path="",
+            file_name="",
+            is_broadcast=is_broadcast,
+            timestamp=int(time.time()),
+        )
+
         addr = self._peer_addr(peer_id)
         if addr:
             return self._send_raw(addr[0], addr[1], pkt) or True
@@ -455,7 +519,7 @@ class Node:
                     return
         threading.Thread(target=_wait, daemon=True).start()
 
-    def send_file(self, peer_id: str, file_path: str, progress_cb: Optional[Callable] = None) -> bool:
+    def send_file(self, peer_id: str, file_path: str, progress_cb: Optional[Callable] = None, is_broadcast: bool = False) -> bool:
         sess = self._session_mgr.get_session_for_peer(peer_id)
         if not sess:
             return False
@@ -464,6 +528,18 @@ class Node:
         file_size = os.path.getsize(file_path)
         file_id   = str(uuid.uuid4())
         total_chunks = (file_size + _CHUNK_SIZE - 1) // _CHUNK_SIZE
+
+        self._ledger.save_message(
+            msg_id=file_id,
+            sender_id=self.node_id,
+            target_id="#BROADCAST" if is_broadcast else peer_id,
+            content=f"发送文件: {filename}",
+            is_file=True,
+            file_path=file_path,
+            file_name=filename,
+            is_broadcast=is_broadcast,
+            timestamp=int(time.time()),
+        )
 
         def _send():
             with open(file_path, "rb") as f:
@@ -475,6 +551,7 @@ class Node:
                         "file_size": file_size,
                         "chunk_idx": chunk_idx,
                         "total_chunks": total_chunks,
+                        "is_broadcast": is_broadcast,
                     }
                     meta_bytes = json.dumps(meta).encode()
                     payload_bytes = (len(meta_bytes).to_bytes(4, "big")

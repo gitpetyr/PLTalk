@@ -39,8 +39,12 @@ class API:
         return self._node.send_message(peer_id, content)
 
     def send_file(self, peer_id: str, file_path: str,
-                  progress_cb: Optional[Callable] = None) -> bool:
-        return self._node.send_file(peer_id, file_path, progress_cb)
+                  progress_cb: Optional[Callable] = None, is_broadcast: bool = False) -> bool:
+        return self._node.send_file(peer_id, file_path, progress_cb, is_broadcast)
+
+    # ── History ───────────────────────────────────────────────────────────────
+    def get_chat_history(self, target_id: str, limit: int = 200) -> list:
+        return self._node._ledger.get_chat_history(self.node_id, target_id, limit)
 
     # ── Peers ─────────────────────────────────────────────────────────────────
     def get_peers(self) -> Dict[str, dict]:

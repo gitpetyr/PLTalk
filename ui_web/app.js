@@ -39,6 +39,10 @@ window.on_event = function(event_name, data) {
         if(currentPeerId === data.peer_id) {
             document.getElementById('current-peer-status').classList.remove('hidden');
         }
+    } else if (event_name === "sync_completed") {
+        if(currentPeerId === data.peer_id) {
+            selectPeer(currentPeerId); // Reload history from DB
+        }
     }
 };
 
@@ -133,14 +137,43 @@ document.getElementById('search-input').addEventListener('input', renderSidebar)
 /* ==================== CHAT ==================== */
 function selectPeer(node_id) {
     currentPeerId = node_id;
-    const p = peers[node_id];
-    p.unread = 0;
+    const p = peers[node_id] || { alias: node_id };
+    if (peers[node_id]) p.unread = 0;
     renderSidebar();
 
     document.getElementById('current-peer-name').innerText = p.alias;
     if(p.secure) document.getElementById('current-peer-status').classList.remove('hidden');
     else document.getElementById('current-peer-status').classList.add('hidden');
     
+    // Load local history from DB
+    window.pywebview.api.get_chat_history(node_id).then(res => {
+        if (res.status === 'ok') {
+            peerMessages[node_id] = res.messages.map(m => {
+                return {
+                    sender_id: m.sender_id,
+                    alias: m.sender_id === myNodeId ? myAlias : (peers[m.sender_id] ? peers[m.sender_id].alias : m.sender_id),
+                    content: m.content,
+                    timestamp: m.timestamp,
+                    is_me: m.sender_id === myNodeId,
+                    is_file: !!m.is_file,
+                    file_path: m.file_path,
+                    file_name: m.file_name,
+                    is_broadcast: !!m.is_broadcast
+                };
+            });
+        }
+        renderChatArea();
+    });
+
+    const syncBtn = document.getElementById('btn-sync-history');
+    if(syncBtn) {
+        if (node_id === '#BROADCAST') {
+            syncBtn.classList.add('hidden');
+        } else {
+            syncBtn.classList.remove('hidden');
+        }
+    }
+
     document.querySelector('.empty-state').classList.add('hidden');
     const input = document.getElementById('chat-input');
     input.disabled = false;
@@ -194,7 +227,8 @@ function handleFileReceived(data) {
         is_me: false,
         is_file: true,
         file_path: data.file_path,
-        file_name: data.file_name
+        file_name: data.file_name,
+        is_broadcast: data.is_broadcast
     });
 }
 
@@ -271,6 +305,19 @@ input.addEventListener('keydown', (e) => {
     }
 });
 document.getElementById('btn-send').onclick = sendMessageText;
+
+const btnSync = document.getElementById('btn-sync-history');
+if(btnSync) {
+    btnSync.onclick = async () => {
+        if (!currentPeerId || currentPeerId === '#BROADCAST') return;
+        const res = await window.pywebview.api.sync_history(currentPeerId);
+        if (res.status === 'ok') {
+            alert("已发送同步请求，等待对方响应...");
+        } else {
+            alert("同步请求发送失败: " + res.error);
+        }
+    };
+}
 
 // Emoji
 const emojiPicker = document.getElementById('emoji-picker');
